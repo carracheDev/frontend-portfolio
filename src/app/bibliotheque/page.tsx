@@ -1,0 +1,46 @@
+"use client";
+
+import { FormEvent, useEffect, useState } from "react";
+import { ArrowLeft, ArrowRight, BookOpen, KeyRound, LogOut, Plus, Search, SlidersHorizontal, Trash2 } from "lucide-react";
+import { ApiBadge, PageIntro, PortfolioHeader } from "@/components/PortfolioHeader";
+import { Modal } from "@/components/ui/Modal";
+import { Toast } from "@/components/ui/Toast";
+import { libraryApi } from "@/lib/api/library-api";
+import type { Book } from "@/lib/types";
+
+const emptyForm = { title: "", isbn: "", year: "", authorIds: "" };
+
+export default function LibraryPage() {
+  const [books, setBooks] = useState<Book[]>([]);
+  const [selected, setSelected] = useState<Book | null>(null);
+  const [search, setSearch] = useState("");
+  const [availability, setAvailability] = useState("");
+  const [page, setPage] = useState(1);
+  const [lastPage, setLastPage] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [adminToken, setAdminToken] = useState("");
+  const [modal, setModal] = useState<"login" | "create" | "delete" | null>(null);
+  const [credentials, setCredentials] = useState({ email: "", password: "" });
+  const [form, setForm] = useState(emptyForm);
+
+  useEffect(() => { setAdminToken(window.localStorage.getItem("library_admin_token") ?? ""); }, []);
+
+  async function refresh() {
+    setLoading(true);
+    try { const result = await libraryApi.books({ search, availability, page }); setBooks(result.data); setLastPage(result.meta.last_page); setError(""); }
+    catch (err) { setError(err instanceof Error ? err.message : "L’API bibliothèque est indisponible."); }
+    finally { setLoading(false); }
+  }
+
+  useEffect(() => { const timer = window.setTimeout(() => void refresh(), 250); return () => window.clearTimeout(timer); }, [search, availability, page]);
+  function changeSearch(value: string) { setSearch(value); setPage(1); }
+  function closeModal() { setModal(null); }
+  async function login(event: FormEvent) { event.preventDefault(); try { const result = await libraryApi.login(credentials.email, credentials.password); setAdminToken(result.token); setModal(null); setCredentials({ email: "", password: "" }); setNotice("Session administrateur ouverte"); } catch (err) { setError(err instanceof Error ? err.message : "Connexion impossible."); } }
+  function logout() { libraryApi.logout(); setAdminToken(""); setNotice("Session administrateur fermée"); }
+  async function createBook(event: FormEvent) { event.preventDefault(); try { await libraryApi.create({ title: form.title.trim(), isbn: form.isbn, year: Number(form.year), author_ids: form.authorIds.split(",").map((id) => Number(id.trim())).filter(Boolean) }); setModal(null); setForm(emptyForm); setNotice("Livre ajouté au catalogue"); await refresh(); } catch { setError("Création impossible. Vérifiez votre session et les données."); } }
+  async function removeBook() { if (!selected) return; try { await libraryApi.remove(selected.id); setSelected(null); setModal(null); setNotice("Livre supprimé du catalogue"); await refresh(); } catch { setError("Suppression impossible. Le livre est peut-être emprunté."); } }
+
+  return <main><PortfolioHeader /><div className="workspace shell"><div className="workspace-head"><PageIntro back eyebrow="Projet 02 / Laravel API" title="Bibliothèque" description="Un catalogue vivant pour explorer les ouvrages, leurs auteurs et leur disponibilité." /><div className="workspace-meta"><ApiBadge label="API · localhost:8000" />{adminToken ? <><span className="secure-label"><span className="status-dot" /> Admin connecté</span><button className="button button-secondary" onClick={logout}><LogOut size={15} /> Quitter</button><button className="button button-primary" onClick={() => setModal("create")}><Plus size={16} /> Ajouter</button></> : <button className="button button-secondary" onClick={() => setModal("login")}><KeyRound size={15} /> Se connecter</button>}</div></div><div className="library-toolbar"><div className="search-box"><Search size={18} /><input aria-label="Rechercher un livre" value={search} onChange={(event) => changeSearch(event.target.value)} placeholder="Rechercher un titre ou un auteur" /></div><label className="filter-select"><SlidersHorizontal size={16} /><select aria-label="Filtrer par disponibilité" value={availability} onChange={(event) => { setAvailability(event.target.value); setPage(1); }}><option value="">Tous les livres</option><option value="available">Disponibles</option><option value="unavailable">Empruntés</option></select></label></div>{error && <div className="feedback feedback-error" role="alert"><span>{error}</span><button className="retry-button" onClick={() => void refresh()}>Réessayer</button></div>}{notice && <Toast message={notice} />}<div className="library-layout"><section className="books-panel"><div className="panel-heading"><div><p className="eyebrow">Catalogue</p><h2>Les ouvrages</h2></div><span className="panel-caption">Page {page} / {lastPage}</span></div>{loading ? <div className="book-grid">{[1, 2, 3].map((item) => <div className="book-skeleton" key={item} />)}</div> : books.length === 0 ? <div className="empty-state"><BookOpen size={25} /><p>Aucun ouvrage ne correspond à votre recherche.</p></div> : <div className="book-grid">{books.map((book) => <button className="book-card card-hover" key={book.id} onClick={() => setSelected(book)}><div className="book-cover"><BookOpen size={25} /><span>{book.year}</span></div><div className="book-card-copy"><span className={`availability ${book.is_available ? "available" : "unavailable"}`}>{book.is_available ? "Disponible" : "Emprunté"}</span><h3>{book.title}</h3><p>{book.authors.map((author) => author.name).join(", ")}</p><small>ISBN {book.isbn}</small></div></button>)}</div>}<div className="pagination"><button className="icon-button" disabled={page <= 1} onClick={() => setPage(page - 1)} aria-label="Page précédente"><ArrowLeft size={17} /></button><span aria-live="polite">{page} sur {lastPage}</span><button className="icon-button" disabled={page >= lastPage} onClick={() => setPage(page + 1)} aria-label="Page suivante"><ArrowRight size={17} /></button></div></section>{selected && <aside className="detail-panel"><button className="detail-close" onClick={() => setSelected(null)} aria-label="Fermer le détail">×</button><div className="detail-cover"><BookOpen size={42} /></div><span className={`availability ${selected.is_available ? "available" : "unavailable"}`}>{selected.is_available ? "Disponible" : "Actuellement emprunté"}</span><h2>{selected.title}</h2><p className="detail-authors">{selected.authors.map((author) => author.name).join(" · ")}</p><dl><div><dt>Année</dt><dd>{selected.year}</dd></div><div><dt>ISBN</dt><dd>{selected.isbn}</dd></div></dl>{adminToken && <button className="danger-button" onClick={() => setModal("delete")}><Trash2 size={15} /> Supprimer ce livre</button>}<div className="detail-note"><strong>Fiche ouvrage</strong><p>Les informations sont chargées en temps réel depuis l’API Laravel.</p></div></aside>}</div></div>{modal === "login" && <Modal eyebrow="Accès sécurisé" title="Connexion administrateur" onClose={closeModal}><form onSubmit={login}><label>Email<input required type="email" autoFocus value={credentials.email} onChange={(event) => setCredentials({ ...credentials, email: event.target.value })} placeholder="admin@example.com" /></label><label>Mot de passe<input required type="password" value={credentials.password} onChange={(event) => setCredentials({ ...credentials, password: event.target.value })} /></label><div className="modal-actions"><button type="button" className="button button-secondary" onClick={closeModal}>Annuler</button><button className="button button-primary" type="submit">Se connecter</button></div></form></Modal>}{modal === "create" && <Modal eyebrow="Catalogue" title="Ajouter un livre" onClose={closeModal}><form onSubmit={createBook}><label>Titre<input required autoFocus value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label><label>ISBN <span>13 chiffres</span><input required pattern="[0-9]{13}" value={form.isbn} onChange={(event) => setForm({ ...form, isbn: event.target.value })} /></label><label>Année<input required type="number" min="1000" max="2100" value={form.year} onChange={(event) => setForm({ ...form, year: event.target.value })} /></label><label>IDs auteurs <span>Ex. 1, 2</span><input required value={form.authorIds} onChange={(event) => setForm({ ...form, authorIds: event.target.value })} /></label><div className="modal-actions"><button type="button" className="button button-secondary" onClick={closeModal}>Annuler</button><button className="button button-primary" type="submit">Ajouter le livre</button></div></form></Modal>}{modal === "delete" && <Modal eyebrow="Action irréversible" title="Supprimer ce livre ?" onClose={closeModal}><p className="confirm-copy">« {selected?.title} » sera retiré du catalogue. Cette action ne peut pas être annulée.</p><div className="modal-actions"><button className="button button-secondary" onClick={closeModal}>Garder le livre</button><button className="button button-danger" onClick={() => void removeBook()}>Supprimer</button></div></Modal>}</main>;
+}

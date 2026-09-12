@@ -1,0 +1,31 @@
+"use client";
+
+import { FormEvent, useEffect, useState } from "react";
+import { CheckCircle2, Circle, Edit3, Plus, Trash2 } from "lucide-react";
+import { ApiBadge, PageIntro, PortfolioHeader } from "@/components/PortfolioHeader";
+import { Modal } from "@/components/ui/Modal";
+import { Toast } from "@/components/ui/Toast";
+import { tasksApi } from "@/lib/api/tasks-api";
+import type { Task } from "@/lib/types";
+
+export default function TasksPage() {
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<Task | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Task | null>(null);
+  const [form, setForm] = useState({ title: "", description: "" });
+
+  async function refresh() { setLoading(true); try { setError(""); setTasks(await tasksApi.list()); } catch (err) { setError(err instanceof Error ? err.message : "L’API des tâches est indisponible."); } finally { setLoading(false); } }
+  useEffect(() => { void refresh(); }, []);
+  function openCreate() { setEditing(null); setForm({ title: "", description: "" }); setFormOpen(true); }
+  function openEdit(task: Task) { setEditing(task); setForm({ title: task.title, description: task.description ?? "" }); setFormOpen(true); }
+  async function submit(event: FormEvent) { event.preventDefault(); if (!form.title.trim()) return; try { if (editing) { const updated = await tasksApi.update(editing.id, { title: form.title.trim(), description: form.description.trim(), is_done: editing.done }); setTasks((current) => current.map((task) => task.id === updated.id ? updated : task)); setNotice("Tâche modifiée"); } else { await tasksApi.create(form); setNotice("Tâche ajoutée"); } setFormOpen(false); await refresh(); } catch { setError("L’action n’a pas pu être terminée."); } }
+  async function toggle(task: Task) { try { const updated = await tasksApi.update(task.id, { title: task.title, description: task.description ?? "", is_done: !task.done }); setTasks((current) => current.map((item) => item.id === updated.id ? updated : item)); setNotice(task.done ? "Tâche réouverte" : "Tâche terminée"); await refresh(); } catch { setError("Impossible de modifier le statut."); } }
+  async function confirmDelete() { if (!pendingDelete) return; try { await tasksApi.remove(pendingDelete.id); setPendingDelete(null); setNotice("Tâche supprimée"); await refresh(); } catch { setError("Impossible de supprimer cette tâche."); } }
+  const completed = tasks.filter((task) => task.done).length;
+
+  return <main><PortfolioHeader /><div className="workspace shell"><div className="workspace-head"><PageIntro back eyebrow="Projet 01 / PHP natif" title="Gestion de tâches" description="Un tableau de bord calme pour capturer, suivre et terminer le travail important." /><div className="workspace-meta"><ApiBadge label="API · localhost:8080" /><button className="button button-primary" onClick={openCreate}><Plus size={17} /> Nouvelle tâche</button></div></div><div className="metric-row"><div><span>À faire</span><strong>{tasks.length - completed}</strong></div><div><span>Terminées</span><strong>{completed}</strong></div><div><span>Total</span><strong>{tasks.length}</strong></div><div className="metric-note">Synchronisé avec l’API PHP native</div></div>{error && <div className="feedback feedback-error" role="alert"><span>{error}</span><button className="retry-button" onClick={() => void refresh()}>Réessayer</button></div>}{notice && <Toast message={notice} />}<section className="tasks-panel"><div className="panel-heading"><div><p className="eyebrow">Vue d’ensemble</p><h2>Votre file de travail</h2></div><span className="panel-caption">{tasks.length} élément{tasks.length !== 1 ? "s" : ""}</span></div>{loading ? <div className="skeleton-list">{[1, 2, 3].map((item) => <div className="skeleton" key={item} />)}</div> : tasks.length === 0 ? <div className="empty-state"><Circle size={25} /><p>Aucune tâche pour le moment.</p><button className="button button-secondary" onClick={openCreate}>Créer la première</button></div> : <div className="task-list">{tasks.map((task) => <article className={`task-item ${task.done ? "is-done" : ""}`} key={task.id}><button className="task-check" aria-label={task.done ? "Rouvrir la tâche" : "Marquer comme faite"} onClick={() => void toggle(task)}>{task.done ? <CheckCircle2 size={22} /> : <Circle size={22} />}</button><div className="task-content"><h3>{task.title}</h3>{task.description && <p>{task.description}</p>}</div><div className="task-actions"><button aria-label="Modifier" title="Modifier" onClick={() => openEdit(task)}><Edit3 size={16} /></button><button aria-label={`Supprimer ${task.title}`} title="Supprimer" onClick={() => setPendingDelete(task)}><Trash2 size={16} /></button></div></article>)}</div>}</section></div>{formOpen && <Modal eyebrow={editing ? "Modifier" : "Nouvelle entrée"} title={editing ? "Modifier la tâche" : "Ajouter une tâche"} onClose={() => setFormOpen(false)}><form onSubmit={submit}><label>Titre<input required autoFocus value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="Ex. Préparer la démo" /></label><label>Description <span>Optionnel</span><textarea rows={4} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="Ajoutez un peu de contexte..." /></label><div className="modal-actions"><button type="button" className="button button-secondary" onClick={() => setFormOpen(false)}>Annuler</button><button className="button button-primary" type="submit">{editing ? "Enregistrer" : "Ajouter"}</button></div></form></Modal>}{pendingDelete && <Modal eyebrow="Action irréversible" title="Supprimer cette tâche ?" onClose={() => setPendingDelete(null)}><p className="confirm-copy">« {pendingDelete.title} » sera définitivement supprimée.</p><div className="modal-actions"><button className="button button-secondary" onClick={() => setPendingDelete(null)}>Annuler</button><button className="button button-danger" onClick={() => void confirmDelete()}>Supprimer</button></div></Modal>}</main>;
+}
